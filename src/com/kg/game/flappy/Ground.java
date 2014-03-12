@@ -1,4 +1,4 @@
-package com.kg.game.flappycat;
+package com.kg.game.flappy;
 
 import org.andengine.engine.handler.IUpdateHandler;
 import org.andengine.entity.primitive.Line;

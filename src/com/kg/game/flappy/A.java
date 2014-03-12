@@ -1,4 +1,4 @@
-package com.kg.game.flappycat;
+package com.kg.game.flappy;
 
 import java.util.ArrayList;
 import java.util.Random;
@@ -74,12 +74,14 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.opengl.GLES20;
 import android.os.Bundle;
+import android.support.v4.app.FragmentActivity;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.RelativeLayout;
+import android.widget.Toast;
 
 import com.badlogic.gdx.math.Vector2;
 import com.badlogic.gdx.physics.box2d.Body;
@@ -87,8 +89,23 @@ import com.badlogic.gdx.physics.box2d.Contact;
 import com.badlogic.gdx.physics.box2d.ContactImpulse;
 import com.badlogic.gdx.physics.box2d.ContactListener;
 import com.badlogic.gdx.physics.box2d.Manifold;
+import com.facebook.FacebookException;
+import com.facebook.FacebookOperationCanceledException;
+import com.facebook.Session;
+import com.facebook.SessionState;
+import com.facebook.UiLifecycleHelper;
+import com.facebook.widget.FacebookDialog;
+import com.facebook.widget.WebDialog;
+import com.facebook.widget.WebDialog.OnCompleteListener;
 import com.google.android.gms.games.Games;
-import com.kg.game.flappycat.Highscores.Medal;
+import com.google.android.gms.games.leaderboard.Leaderboard;
+import com.google.android.gms.games.leaderboard.LeaderboardScore;
+import com.google.android.gms.games.leaderboard.LeaderboardScoreBuffer;
+import com.google.android.gms.games.leaderboard.LeaderboardVariant;
+import com.google.android.gms.games.leaderboard.Leaderboards;
+import com.google.android.gms.games.leaderboard.Leaderboards.LoadScoresResult;
+import com.google.android.gms.games.leaderboard.OnLeaderboardScoresLoadedListener;
+import com.kg.game.flappy.Highscores.Medal;
 
 import com.google.android.gms.common.api.*;
 import com.google.example.games.basegameutils.GameHelper;
@@ -97,10 +114,10 @@ import com.google.example.games.basegameutils.GameHelper.GameHelperListener;
 public class A extends SimpleBaseGameActivity implements IOnSceneTouchListener {
 	//public InterstitialAd inter;
 	//public AdView banner;
-	public final String LEADERBOARD_ID = "CgkI1cCb0OEIEAIQAA";
+	public static final String LB_ID = "CgkI1cCb0OEIEAIQAA";
 	
 	// GAME STATE
-	private int score; 
+	private Score score; 
 	public enum State { MENU, GAME, HS }
 	private boolean canPushButton = false;
 
@@ -115,25 +132,42 @@ public class A extends SimpleBaseGameActivity implements IOnSceneTouchListener {
 	public static State currentState;
 	public static Settings settings;
 	public static Random ran;
+	
+	public static GameHelper gameHelper;
+	public static UiLifecycleHelper uiHelper;
 
 	// RESOURCES
 	public static BuildableBitmapTextureAtlas game_TA;
-	public static TiledTextureRegion player_TR;
-	public static TiledTextureRegion dizzy_TR;
-	public static TiledTextureRegion medals_TR;
-	public static TextureRegion wall_TR;
-	public static TextureRegion tap_to_play_TR;
-	public static TextureRegion button_play_TR;
-	public static TextureRegion button_hs_TR;
-	public static TextureRegion game_over_bg_TR;
-	public static TextureRegion game_over_text_TR;
-	public static TextureRegion title_TR;
-	public static TextureRegion particle_TR;
-	public static TextureRegion new_TR;
-	public static TextureRegion dir_TR;
-	public static TextureRegion loading_TR;
-
-	public static TextureRegion bg_front_TR, bg_mid_TR, bg_back_TR;
+	
+	public static TiledTextureRegion 
+	player_TR, 
+	dizzy_TR,
+	medals_TR,
+	flags_TR;
+	public static TextureRegion 
+	wall_TR, 
+	tap_to_play_TR, 
+	button_play_TR, 
+	button_hs_TR,
+	button_show_TR,
+	game_over_bg_TR, 
+	game_over_text_TR, 
+	title_TR, 
+	particle_TR, 
+	new_TR, 
+	dir_TR, 
+	loading_TR, 
+	button_share_TR, 
+	bg_front_TR, 
+	bg_mid_TR, 
+	bg_back_TR,
+	best_TR,
+	rank_TR;
+	
+	public static Font 
+	font_small,
+	font_normal, 
+	font_big;
 
 	// OBJECTS
 	public static Player player;
@@ -141,11 +175,13 @@ public class A extends SimpleBaseGameActivity implements IOnSceneTouchListener {
 	SpriteParticleSystem ps;
 	IUpdateHandler scoreUpdateHandler;
 	
-	Sprite sprite_tapToPlay, sprite_buttonPlay, sprite_buttonHS, sprite_gameOverText, 
+	TimerHandler thStop, thAnimHS;
+	MoveModifier mmGOText, mmGO, mmButtons;
+	
+	Sprite sprite_tapToPlay, sprite_buttonPlay, sprite_buttonHS, sprite_buttonShare, sprite_buttonShow, sprite_gameOverText, sprite_best, sprite_rank, 
 	sprite_gameOver, sprite_titleText, sprite_new, sprite_dir;
-	Text text_score, text_hs_curr, text_hs_best; 
+	Text text_score, text_hs_curr, text_hs_best, text_rank_world, text_rank_friends; 
 	Rectangle rect_menu, rect_gg, rect_buttons;
-	Font font_small, font_normal, font_big;
 	TiledSprite sprite_medal;
 	Loading loading;
 	
@@ -153,25 +189,29 @@ public class A extends SimpleBaseGameActivity implements IOnSceneTouchListener {
 	Ground gr;
 	Highscores hs;
 	Medal medal;
-	
-	GameHelper mHelper;
+	FlagsController fc;
 
 	@Override
 	public void onCreate(Bundle savedInstanceState) {
 		
-		
-		mHelper = new GameHelper(this, GameHelper.CLIENT_GAMES);
-		mHelper.enableDebugLog(true, "GameHelper");
+		Session.StatusCallback callback = new Session.StatusCallback() {
+			@Override
+			public void call(Session session, SessionState state, Exception exception) {}
+		};
+		uiHelper = new UiLifecycleHelper(this, callback);
+	    uiHelper.onCreate(savedInstanceState);
+	    
+		gameHelper = new GameHelper(this, GameHelper.CLIENT_GAMES);
 		
 		super.onCreate(savedInstanceState);
 
-		GameHelperListener listener = new GameHelper.GameHelperListener() {
+		/*GameHelperListener listener = new GameHelper.GameHelperListener() {
 			@Override
 			public void onSignInSucceeded() {        }
 			@Override
 			public void onSignInFailed() {        }
 		};
-		mHelper.setup(listener);
+		gameHelper.setup(listener);*/
 		
 		
 	}
@@ -179,19 +219,56 @@ public class A extends SimpleBaseGameActivity implements IOnSceneTouchListener {
 	@Override
 	protected void onStart() {
 	    super.onStart();
-	    mHelper.onStart(this);
+	    gameHelper.onStart(this);
 	}
 
 	@Override
 	protected void onStop() {
 	    super.onStop();
-	    mHelper.onStop();
+	    gameHelper.onStop();
+	}
+	
+	@Override
+	protected void onResume() {
+	    super.onResume();
+	    uiHelper.onResume();
+	}
+
+	@Override
+	protected void onSaveInstanceState(Bundle outState) {
+	    super.onSaveInstanceState(outState);
+	    uiHelper.onSaveInstanceState(outState);
+	}
+
+	@Override
+	public void onPause() {
+	    super.onPause();
+	    uiHelper.onPause();
+	}
+
+	@Override
+	public void onDestroy() {
+	    super.onDestroy();
+	    uiHelper.onDestroy();
 	}
 
 	@Override
 	protected void onActivityResult(int request, int response, Intent data) {
 	    super.onActivityResult(request, response, data);
-	    mHelper.onActivityResult(request, response, data);
+	    
+	    uiHelper.onActivityResult(request, response, data, new FacebookDialog.Callback() {
+	        @Override
+	        public void onError(FacebookDialog.PendingCall pendingCall, Exception error, Bundle data) {
+	            Log.e("Activity", String.format("Error: %s", error.toString()));
+	        }
+
+	        @Override
+	        public void onComplete(FacebookDialog.PendingCall pendingCall, Bundle data) {
+	            Log.i("Activity", "Success!");
+	        }
+	    });
+	    
+	    gameHelper.onActivityResult(request, response, data);
 	}
 	
 	@Override
@@ -210,20 +287,7 @@ public class A extends SimpleBaseGameActivity implements IOnSceneTouchListener {
 		hs = new Highscores();
 		createPhysics();
 
-		scoreUpdateHandler = new IUpdateHandler(){
-			@Override
-			public void onUpdate(float pSecondsElapsed) { 
-				for (WallPair wp : wps) 
-					if (A.player.collidesWith(wp.scoreLine)) {
-						wp.scoreLine.setPosition(0, 0, 0, 0);
-		                addScore();
-		            }
-			}
-
-			@Override
-			public void reset() {
-			}
-		};
+		createScoreHandler();
 		
 		scene.setOnSceneTouchListener(this);
 		scene.setTouchAreaBindingOnActionDownEnabled(true);
@@ -235,17 +299,38 @@ public class A extends SimpleBaseGameActivity implements IOnSceneTouchListener {
 		createObjects();
 		createGrounds();
 		//createParticleSystemFront();
-
+		
+		initTimersAndModifiers();
+		
 		//DebugRenderer debug = new DebugRenderer(pw, vbom); scene.attachChild(debug);
 		//mEngine.registerUpdateHandler(new FPSLogger());
 		hud.sortChildren();
 		
+		score = new Score();
+		fc = new FlagsController(gameHelper, score, wps);
+
 		setGameState(State.MENU);
 		
 		return scene;
 	}
 	
-	
+	private void createScoreHandler() {
+		scoreUpdateHandler = new IUpdateHandler(){
+			@Override
+			public void onUpdate(float pSecondsElapsed) { 
+				for (WallPair wp : wps) 
+					if (A.player.collidesWith(wp.scoreLine)) {
+						wp.scoreLine.setPosition(-1000, -1000, -1000, -1000);
+		                addScore();
+		                fc.check();
+		            }
+			}
+
+			@Override
+			public void reset() {
+			}
+		};
+	}
 	/*@Override
 	protected void onSetContentView() {
 		
@@ -299,13 +384,13 @@ public class A extends SimpleBaseGameActivity implements IOnSceneTouchListener {
 	}
 	
 	private void addScore() {
-		score ++;
-		setScore(score);
+		score.add();
+		setScore(score.get());
 	}
 
 	private void resetScore() {
-		score = 0;
-		setScore(score);
+		score.reset();
+		setScore(score.get());
 	}
 
 	private void setButtonsVisible(boolean b) {
@@ -313,20 +398,7 @@ public class A extends SimpleBaseGameActivity implements IOnSceneTouchListener {
 			canPushButton = false;
 			
 			rect_buttons.setY(CH);
-			rect_buttons.registerEntityModifier(new MoveModifier(
-					0.5f, 
-					rect_buttons.getX(), rect_buttons.getX(),
-					rect_buttons.getY(), settings.buttons_y, new IEntityModifierListener() {
-						@Override
-						public void onModifierStarted(IModifier<IEntity> pModifier,
-								IEntity pItem) {}
-
-						@Override
-						public void onModifierFinished(
-								IModifier<IEntity> pModifier, IEntity pItem) {
-							canPushButton = true;
-						}},
-					EaseBackOut.getInstance()));
+			rect_buttons.registerEntityModifier(mmButtons);
 		} else {
 			rect_buttons.setY(-1000);
 		}
@@ -350,11 +422,55 @@ public class A extends SimpleBaseGameActivity implements IOnSceneTouchListener {
 	private void buttonHSPushed() {
 		//hs.resetHS();
 		int REQUEST_LEADERBOARD = 1;
-		startActivityForResult(Games.Leaderboards.getLeaderboardIntent(mHelper.getApiClient(), LEADERBOARD_ID), REQUEST_LEADERBOARD);
+		if (gameHelper.isSignedIn()) 
+			startActivityForResult(Games.Leaderboards.getLeaderboardIntent(gameHelper.getApiClient(), LB_ID), REQUEST_LEADERBOARD);
+	}
+	
+	private void buttonSharePushed() {
+		String name, desc, link;
+		
+		if (currentState == State.HS) 
+			desc = "My highscore is " + hs.r1 + " in the Flappy Foxy game!";
+		else
+			desc = "Compete with me in the Flappy Foxy game!";	
+		
+		name = "Flappy Foxy";
+		desc = "Compete with me in the Flappy Foxy game!";
+		link = "https://play.google.com/store/apps/details?id=com.kg.game.flappy";
+
+		if (FacebookDialog.canPresentShareDialog(getApplicationContext(), FacebookDialog.ShareDialogFeature.SHARE_DIALOG)) {
+			FacebookDialog shareDialog = new FacebookDialog.ShareDialogBuilder(this)
+	        .setName(name)
+	        .setDescription(desc)
+			.setLink(link)
+	        .build();
+			uiHelper.trackPendingDialogCall(shareDialog.present());
+		} else {
+			Bundle params = new Bundle();
+		    params.putString("name", name);
+		    params.putString("description", desc);
+		    params.putString("link", link);
+		    WebDialog feedDialog = (new WebDialog.FeedDialogBuilder(activity, Session.getActiveSession(), params))
+		        .setOnCompleteListener(new OnCompleteListener() {
+		            @Override
+		            public void onComplete(Bundle values, FacebookException error) {
+		            	if (error == null && values.getString("post_id") != null) {
+		            		// SUCCESS
+		            	} else {
+		            		// FAIL
+		            	}
+		            }
+		        }).build();
+		    feedDialog.show();
+		}
+		
+		
+		
+		
 	}
 	
 	private void recordHS(int score) {
-		Games.Leaderboards.submitScore(mHelper.getApiClient(), "CgkI1cCb0OEIEAIQAA", score);
+		if (gameHelper.isSignedIn()) Games.Leaderboards.submitScore(gameHelper.getApiClient(), LB_ID, score);
 	}
 
 	private void setCenterPosition(RectangularShape s) {
@@ -372,6 +488,11 @@ public class A extends SimpleBaseGameActivity implements IOnSceneTouchListener {
 	private void setCenterPositionYInShape(RectangularShape s, RectangularShape sc) {
 		s.setPosition(s.getX(), (sc.getHeight() - s.getHeight()) / 2);
 	}
+	
+	private void setCenterPositionXInShape(RectangularShape s, RectangularShape sc) {
+		s.setPosition((sc.getWidth() - s.getWidth()) / 2, s.getY());
+	}
+
 
 	private void setObjectPositions() {
 
@@ -383,8 +504,10 @@ public class A extends SimpleBaseGameActivity implements IOnSceneTouchListener {
 		
 		sprite_buttonPlay.setPosition(CW / 2 - sprite_buttonPlay.getWidth(), 0);
 		sprite_buttonHS.setPosition(CW / 2, 0);
+		sprite_buttonShare.setPosition(0, -settings.button_height);
 		setCenterPositionYInShape(sprite_buttonPlay, rect_buttons);
 		setCenterPositionYInShape(sprite_buttonHS, rect_buttons);
+		setCenterPositionXInShape(sprite_buttonShare, rect_buttons);
 		
 		setCenterPosition(sprite_tapToPlay);
 		setCenterPosition(sprite_gameOver);
@@ -396,12 +519,39 @@ public class A extends SimpleBaseGameActivity implements IOnSceneTouchListener {
 		text_score.setY(200);
 
 		sprite_gameOverText.setPosition((sprite_gameOver.getWidth() - sprite_gameOverText.getWidth()) / 2, settings.gameOverText_y);
-		text_hs_curr.setPosition(55, 200);
-		text_hs_best.setPosition(sprite_gameOver.getWidth() / 2 + 85, text_hs_curr.getY());
+		text_hs_curr.setPosition(100, 200);
+		text_hs_best.setPosition(sprite_gameOver.getWidth() / 2 + 100, text_hs_curr.getY());
 		
 		sprite_medal.setY(text_hs_curr.getY() + (text_hs_curr.getHeight() - sprite_medal.getHeight()) / 2);
 		sprite_new.setY(text_hs_best.getY());
-
+		
+		sprite_best.setY(sprite_titleText.getY() + sprite_titleText.getHeight());
+		
+		sprite_rank.setY(sprite_best.getHeight());
+		
+		sprite_buttonShow.setPosition(-1000, sprite_titleText.getY() + sprite_titleText.getHeight());
+	}
+	
+	private void switchShowBest(boolean showRanks) {
+		if (showRanks) {
+			// BEST
+			player.setVisible(false);
+			sprite_best.setX((CW - sprite_best.getWidth()) / 2);
+			sprite_buttonShow.setX(-1000);
+		} else {
+			// SHOW
+			player.setVisible(true);
+			sprite_best.setX(-1000);
+			sprite_buttonShow.setX((CW - sprite_buttonShow.getWidth()) / 2);
+		}
+	}
+	
+	private void switchShowBest() {
+		if (sprite_best.getX() < 0) {
+			switchShowBest(true);
+		} else {
+			switchShowBest(false);
+		}
 	}
 
 	private void setScoreVisible(boolean b) {
@@ -416,6 +566,41 @@ public class A extends SimpleBaseGameActivity implements IOnSceneTouchListener {
 	private void createObjects() {
 
 		// SPRITES
+		
+		sprite_best = new BestSprite(0, 0) {
+			@Override
+			public boolean onAreaTouched(TouchEvent pSceneTouchEvent, float X, float Y) 
+			{
+				if (pSceneTouchEvent.isActionDown())
+				{
+					if (sprite_rank.isVisible()) switchShowBest();
+				}
+				return true;
+			}
+		};
+		sprite_rank = new RankSprite(0, 0) {
+			@Override
+			public boolean onAreaTouched(TouchEvent pSceneTouchEvent, float X, float Y) 
+			{
+				if (pSceneTouchEvent.isActionDown())
+				{
+					if (sprite_rank.isVisible()) switchShowBest();
+				}
+				return true;
+			}
+		};
+		
+		sprite_buttonShow = new Sprite(0, 0, settings.button_width, settings.button_height, button_show_TR, vbom) {
+			@Override
+			public boolean onAreaTouched(TouchEvent pSceneTouchEvent, float X, float Y) 
+			{
+				if (pSceneTouchEvent.isActionDown())
+				{
+					switchShowBest();
+				}
+				return true;
+			}};
+		
 		sprite_medal = new TiledSprite(0, 0, settings.medalSize, settings.medalSize, medals_TR, vbom);
 		sprite_tapToPlay = new Sprite(0, 0, 512, 512, tap_to_play_TR, vbom);
 		sprite_buttonPlay = new Sprite(0, 0, settings.button_width, settings.button_height, button_play_TR, vbom){
@@ -429,7 +614,7 @@ public class A extends SimpleBaseGameActivity implements IOnSceneTouchListener {
 				}
 				return true;
 			}};
-			sprite_buttonHS = new Sprite(0, 0, settings.button_width, settings.button_height, button_hs_TR, vbom){
+		sprite_buttonHS = new Sprite(0, 0, settings.button_width, settings.button_height, button_hs_TR, vbom){
 				@Override
 				public boolean onAreaTouched(TouchEvent pSceneTouchEvent, float X, float Y) 
 				{
@@ -440,19 +625,36 @@ public class A extends SimpleBaseGameActivity implements IOnSceneTouchListener {
 					}
 					return true;
 				}};
+		sprite_buttonShare = new Sprite(0, 0, settings.button_width, settings.button_height, button_share_TR, vbom){
+					@Override
+					public boolean onAreaTouched(TouchEvent pSceneTouchEvent, float X, float Y) 
+					{
+						if (pSceneTouchEvent.isActionDown())
+						{
+							if (canPushButton)
+								buttonSharePushed();
+						}
+						return true;
+					}};
+		
 
+				hud.registerTouchArea(sprite_best);
+				hud.registerTouchArea(sprite_rank);
+				hud.registerTouchArea(sprite_buttonShow);
+				
 				scene.registerTouchArea(sprite_buttonPlay);
 				scene.registerTouchArea(sprite_buttonHS);
+				scene.registerTouchArea(sprite_buttonShare);
 				
 				sprite_new = new Sprite(0, 0, settings.new_width, settings.new_width / 2, new_TR, vbom);
 				sprite_gameOver = new Sprite(0, 0, CW, CW / 2, game_over_bg_TR, vbom);
-				sprite_gameOverText = new Sprite(0, 0, CW, settings.gameOverTextHeight, game_over_text_TR, vbom);
+				sprite_gameOverText = new Sprite(0, 0, CW, CW / 4, game_over_text_TR, vbom);
 				sprite_titleText = new Sprite(0, 0, 600, 170, title_TR, vbom);
 
 				player = new Player((CW - settings.playerWidth) / 2, (CH - settings.playerHeight) / 2);
 				player.body.setActive(false);
 				sprite_dir = new Sprite(0, 0, 50, 50, dir_TR, vbom);
-				
+				hud.attachChild(sprite_buttonShow);
 				hud.attachChild(sprite_gameOver);
 				hud.attachChild(sprite_titleText);
 				sprite_gameOver.attachChild(sprite_gameOverText);
@@ -466,9 +668,11 @@ public class A extends SimpleBaseGameActivity implements IOnSceneTouchListener {
 				rect_buttons.setAlpha(0);
 				rect_buttons.attachChild(sprite_buttonPlay);
 				rect_buttons.attachChild(sprite_buttonHS);
+				rect_buttons.attachChild(sprite_buttonShare);
 				
 				hud.attachChild(rect_buttons);
-
+				hud.attachChild(sprite_best);
+				sprite_best.attachChild(sprite_rank);
 				scene.attachChild(player);
 				
 
@@ -521,10 +725,18 @@ public class A extends SimpleBaseGameActivity implements IOnSceneTouchListener {
 		switch (state) {
 
 		case MENU:
-			player.setScale(3);
+			
 			player.animate();
 			startMovingBG();
-
+			
+			sprite_best.setScale(0.8f);
+			
+			player.setScaleCenter(player.getWidth() / 2, 0.18f * player.getHeight());
+			player.setScale(2.5f);
+			//player.setScale(3f);
+			
+			player.setY(sprite_best.getY() + sprite_best.getHeight());
+			
 			player.setVisible(true);
 			setButtonsVisible(true);
 			sprite_titleText.setVisible(true);
@@ -532,12 +744,14 @@ public class A extends SimpleBaseGameActivity implements IOnSceneTouchListener {
 
 		case GAME:
 			player.setScale(1);
-			resetScore();
-
 			player.animate();
+			player.setVisible(true);
+			
 			resetGame();
 			startMovingBG();
-
+			
+			sprite_buttonShow.setVisible(false);
+			sprite_best.setVisible(false);
 			setButtonsVisible(false);
 			sprite_titleText.setVisible(false);
 			sprite_gameOver.setVisible(false);
@@ -549,10 +763,10 @@ public class A extends SimpleBaseGameActivity implements IOnSceneTouchListener {
 
 		case HS:
 			player.die();
-			medal = hs.addHS(score);
+			medal = hs.addHS(score.get());
 			
 			switch(medal) {
-			case GOLD_OLD: case GOLD_NEW:
+			case GOLD: case GOLD_NEW:
 				sprite_medal.setCurrentTileIndex(0);
 				break;
 			case SILVER:
@@ -566,7 +780,7 @@ public class A extends SimpleBaseGameActivity implements IOnSceneTouchListener {
 				break;
 			}
 			
-			text_hs_curr.setText("" + score);
+			text_hs_curr.setText("" + score.get());
 			text_hs_best.setText("" + hs.r1);
 			
 			sprite_medal.setX(text_hs_curr.getX() + text_hs_curr.getWidth() + 20);
@@ -579,53 +793,90 @@ public class A extends SimpleBaseGameActivity implements IOnSceneTouchListener {
 
 			setScoreVisible(false);
 			
-			recordHS(score);
+			recordHS(score.get());
 			
 			scene.unregisterUpdateHandler(scoreUpdateHandler);
 			
-			scene.registerUpdateHandler(new TimerHandler(0.1f, false, new ITimerCallback() {
-				@Override
-				public void onTimePassed(TimerHandler pTimerHandler) {
-					stopMovingWalls();
-					stopMovingBG();
-				}}));
-			scene.registerUpdateHandler(new TimerHandler(1f, false, new ITimerCallback() {
-				@Override
-				public void onTimePassed(TimerHandler pTimerHandler) {
-					animateHS();
-				}}));
+			scene.registerUpdateHandler(thStop);
+			scene.registerUpdateHandler(thAnimHS);
 			break;
 		}
 	}
-
-	private void animateHS() {
-		sprite_gameOverText.setY(-sprite_gameOver.getY() - settings.gameOverTextHeight);
-		sprite_gameOverText.registerEntityModifier(new MoveModifier(
+	
+	private void initTimersAndModifiers() {
+		thStop = new TimerHandler(0.1f, false, new ITimerCallback() {
+			@Override
+			public void onTimePassed(TimerHandler pTimerHandler) {
+				stopMovingWalls();
+				stopMovingBG();
+				scene.unregisterUpdateHandler(thStop);
+				thStop.reset();
+			}});
+		
+		thAnimHS = new TimerHandler(1f, false, new ITimerCallback() {
+			@Override
+			public void onTimePassed(TimerHandler pTimerHandler) {
+				animateHS();
+				scene.unregisterUpdateHandler(thAnimHS);
+				thAnimHS.reset();
+			}});
+		
+		mmGOText = new MoveModifier(
 				1, 
 				sprite_gameOverText.getX(), sprite_gameOverText.getX(),
-				sprite_gameOverText.getY(), settings.gameOverText_y, EaseBounceOut.getInstance()));
-		
-		
-		
-		sprite_gameOver.setX(-sprite_gameOver.getWidth());
-		sprite_gameOver.setVisible(true);
-		sprite_gameOver.registerEntityModifier(new MoveModifier(
-				1, 
-				sprite_gameOver.getX(), 0,
-				sprite_gameOver.getY(), sprite_gameOver.getY(), 
-				new IEntityModifierListener() {
+				-sprite_gameOver.getY() - settings.gameOverTextHeight, settings.gameOverText_y,
+				EaseBounceOut.getInstance()) {
 					@Override
-					public void onModifierStarted(IModifier<IEntity> pModifier,
-							IEntity pItem) {}
-
-					@Override
-					public void onModifierFinished(
-							IModifier<IEntity> pModifier, IEntity pItem) {
+					public void onModifierFinished(IEntity pItem) {
+						super.onModifierFinished(pItem);
+						
 						setButtonsVisible(true);
-					}},
-				EaseBackOut.getInstance()));
+						
+						sprite_gameOverText.clearEntityModifiers();
+						mmGOText.reset();
+					}};
 		
+		mmGO = new MoveModifier(
+				1, 
+				-sprite_gameOver.getWidth(), 0,
+				sprite_gameOver.getY(), sprite_gameOver.getY(), 
+				EaseBackOut.getInstance()) {
+					@Override
+					public void onModifierFinished(IEntity pItem) {
+						super.onModifierFinished(pItem);
+
+						sprite_gameOver.clearEntityModifiers();
+						mmGO.reset();
+					}};
+					
+         mmButtons = new MoveModifier(
+					0.5f, 
+					rect_buttons.getX(), rect_buttons.getX(),
+					CH, settings.buttons_y, 
+					EaseBackOut.getInstance()) {
+        	 @Override
+				public void onModifierFinished(IEntity pItem) {
+        		 	super.onModifierFinished(pItem);
+        		 	
+        		 	canPushButton = true;
+        		 	
+					rect_buttons.clearEntityModifiers();
+					mmButtons.reset();
+				}
+         };
+					
+	}
+	
+	private void animateHS() {
+
+		sprite_gameOverText.setY(-sprite_gameOver.getY() - settings.gameOverTextHeight);
+		sprite_gameOver.setX(-sprite_gameOver.getWidth());
 		
+		sprite_gameOverText.registerEntityModifier(mmGOText);
+		sprite_gameOver.registerEntityModifier(mmGO);
+		
+		sprite_gameOver.setVisible(true);
+	
 	}
 
 	private void resetGame() {
@@ -637,6 +888,7 @@ public class A extends SimpleBaseGameActivity implements IOnSceneTouchListener {
 		for (int i = 0; i < wps.size(); i ++) {
 			wps.get(i).setX(settings.wallStartX + settings.wallSpaceH * i);
 			wps.get(i).setRandomDY();
+			wps.get(i).flag.hide();
 
 			// TEST FOR HARDNESS
 			//wps.get(0).setDY(settings.wallDVMax);
@@ -650,6 +902,8 @@ public class A extends SimpleBaseGameActivity implements IOnSceneTouchListener {
 			if (te.isActionDown()) {
 				if (sprite_tapToPlay.isVisible()) {
 					scene.registerUpdateHandler(scoreUpdateHandler);
+					fc.resetFlags();
+					fc.check();
 					player.body.setActive(true);
 					startMovingWalls();
 					player.stopAnimation();
@@ -726,7 +980,7 @@ public class A extends SimpleBaseGameActivity implements IOnSceneTouchListener {
 
 	private void loadFonts() {
 		String fontName = "font.ttf";
-
+		String fontNameBest = "fontBest.ttf";
 		/*ITexture finalfont;
 
 		finalfont = new BitmapTextureAtlas(this.getTextureManager(), 512, 512, TextureOptions.BILINEAR_PREMULTIPLYALPHA);
@@ -742,7 +996,12 @@ public class A extends SimpleBaseGameActivity implements IOnSceneTouchListener {
 		ITexture fontTexture; 
 		
 		fontTexture = new BitmapTextureAtlas(this.getTextureManager(), 512, 512, TextureOptions.BILINEAR);
-		font_normal = FontFactory.createStrokeFromAsset(this.getFontManager(), fontTexture, this.getAssets(), fontName, 90, true, Color.WHITE, 6, Color.BLACK);
+		font_small = FontFactory.createStrokeFromAsset(this.getFontManager(), fontTexture, this.getAssets(), 
+				fontNameBest, 40, true, android.graphics.Color.WHITE, 0.5f, android.graphics.Color.WHITE);
+		font_small.load();
+		
+		fontTexture = new BitmapTextureAtlas(this.getTextureManager(), 512, 512, TextureOptions.BILINEAR);
+		font_normal = FontFactory.createStrokeFromAsset(this.getFontManager(), fontTexture, this.getAssets(), fontName, 100, true, Color.WHITE, 10, Color.BLACK);
 		font_normal.load();
 		
 		fontTexture = new BitmapTextureAtlas(this.getTextureManager(), 512, 512, TextureOptions.BILINEAR);
@@ -753,9 +1012,10 @@ public class A extends SimpleBaseGameActivity implements IOnSceneTouchListener {
 	private void loadTextures() {
 		game_TA = new BuildableBitmapTextureAtlas(getTextureManager(), 1024 * 4, 1024 * 4, TextureOptions.DEFAULT);
 
-		player_TR = BitmapTextureAtlasTextureRegionFactory.createTiledFromAsset(game_TA, this, "foxy.png", 2, 2);
+		player_TR = BitmapTextureAtlasTextureRegionFactory.createTiledFromAsset(game_TA, this, "foxy.png", 4, 1);
 		dizzy_TR = BitmapTextureAtlasTextureRegionFactory.createTiledFromAsset(game_TA, this, "dizzy.png", 6, 1);
 		medals_TR = BitmapTextureAtlasTextureRegionFactory.createTiledFromAsset(game_TA, this, "medals.png", 2, 2);
+		flags_TR = BitmapTextureAtlasTextureRegionFactory.createTiledFromAsset(game_TA, this, "flags.png", 3, 2);
 		wall_TR = BitmapTextureAtlasTextureRegionFactory.createFromAsset(game_TA, this, "wall.png");
 		tap_to_play_TR = BitmapTextureAtlasTextureRegionFactory.createFromAsset(game_TA, this, "tap_to_play.png");
 		button_play_TR = BitmapTextureAtlasTextureRegionFactory.createFromAsset(game_TA, this, "button_play.png");
@@ -770,6 +1030,10 @@ public class A extends SimpleBaseGameActivity implements IOnSceneTouchListener {
 		new_TR = BitmapTextureAtlasTextureRegionFactory.createFromAsset(game_TA, this, "new.png");
 		dir_TR = BitmapTextureAtlasTextureRegionFactory.createFromAsset(game_TA, this, "dir.png");
 		loading_TR = BitmapTextureAtlasTextureRegionFactory.createFromAsset(game_TA, this, "loading.png");
+		button_share_TR = BitmapTextureAtlasTextureRegionFactory.createFromAsset(game_TA, this, "button_share.png");
+		best_TR = BitmapTextureAtlasTextureRegionFactory.createFromAsset(game_TA, this, "best.png");
+		rank_TR = BitmapTextureAtlasTextureRegionFactory.createFromAsset(game_TA, this, "rank.png");
+		button_show_TR = BitmapTextureAtlasTextureRegionFactory.createFromAsset(game_TA, this, "button_show.png");
 		
 		try {
 			game_TA.build(new BlackPawnTextureAtlasBuilder<IBitmapTextureAtlasSource, BitmapTextureAtlas>(0, 1, 0));

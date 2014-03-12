@@ -1,4 +1,4 @@
-package com.kg.game.flappycat;
+package com.kg.game.flappy;
 
 import org.andengine.engine.handler.IUpdateHandler;
 import org.andengine.engine.handler.timer.ITimerCallback;
@@ -12,6 +12,7 @@ public class WallPair {
 	
 	public Wall upper, lower;
 	public Line scoreLine;
+	public Flag flag;
 	
 	private IUpdateHandler uh;
 	private float uy, ly;
@@ -26,6 +27,9 @@ public class WallPair {
 		upper = new Wall(x, uy, true);
 		lower = new Wall(x, ly, false);
 
+		flag = new Flag();
+		lower.attachChild(flag);
+		
 		scoreLine = new Line(
 				upper.getWidth() / 2, upper.getHeight(), 
 				upper.getWidth() / 2, upper.getHeight() + A.settings.wallSpaceV, A.vbom);
@@ -45,6 +49,14 @@ public class WallPair {
 							lower.body.getAngle());
 
 					setRandomDY();
+					
+					/*if (flag.show) {
+						flag.show(flag.tempfs);
+						flag.show = false; 
+					} else {
+						flag.hide();
+					} */
+					flag.hide();
 				}
 	        }
 			@Override

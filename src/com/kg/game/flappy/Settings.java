@@ -1,4 +1,4 @@
-package com.kg.game.flappycat;
+package com.kg.game.flappy;
 
 import org.andengine.extension.physics.box2d.PhysicsFactory;
 import org.andengine.util.color.Color;
@@ -7,6 +7,12 @@ import com.badlogic.gdx.physics.box2d.FixtureDef;
 
 public class Settings {
 
+	float best_width = A.CW * 0.9f;
+	float best_height = best_width / (A.best_TR.getWidth() / A.best_TR.getHeight());
+			
+	float rank_width = best_width / (A.best_TR.getWidth() / A.rank_TR.getWidth());
+	float rank_height = rank_width / (A.rank_TR.getWidth() / A.rank_TR.getHeight());
+	
 	String str_player = "player";
 	String str_dangerousWall = "wall";
 	
@@ -46,6 +52,9 @@ public class Settings {
 	
 	int wallN = 3;
 	
+	float flagWidth = 25 * 4;
+	float flagHeight = 18 * 4;
+	
 	float medalSize = 90;
 	float medalY = 300;
 
@@ -55,14 +64,16 @@ public class Settings {
 	
 	// INTERFACE
 	float new_width = 120;
-	float button_width = 300;
+	float button_width = 275;
 	float button_height = button_width / 2;
 	float hs_width = 500;
 	float buttons_y = 1000;
-	float gameOverTextHeight = 250;
-	float gameOverText_y = -gameOverTextHeight + 50;
+	float gameOverTextHeight = A.CW / 4;
+	float gameOverText_y = -gameOverTextHeight + 20;
 	
 	int scoreMaxLetters = 4;
+	int rankMaxLetters = 100;
+	int nameMaxLetters = 100;
 	
 	// TEXT
 	float shadowOffsetBig = 10;

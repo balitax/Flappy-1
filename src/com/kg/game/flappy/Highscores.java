@@ -1,4 +1,4 @@
-package com.kg.game.flappycat;
+package com.kg.game.flappy;
 
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -7,7 +7,7 @@ import android.content.SharedPreferences.Editor;
 public class Highscores {
 
 	public int r1, r2, r3;
-	public enum Medal { GOLD_NEW, GOLD_OLD, SILVER, BRONZE, NO_MEDAL }
+	public enum Medal { GOLD_NEW, GOLD, SILVER, BRONZE, NO_MEDAL }
 	
 	private String r1_str, r2_str, r3_str;
 	private SharedPreferences prefs;
@@ -23,20 +23,6 @@ public class Highscores {
 		loadHS();
 	}
 	
-	private void loadHS() {
-		r1 = prefs.getInt(r1_str, 0);
-		r2 = prefs.getInt(r2_str, 0);
-		r3 = prefs.getInt(r3_str, 0);
-	}
-	
-	private void saveHS() {
-		Editor e = prefs.edit();
-		e.putInt(r1_str, r1);
-		e.putInt(r2_str, r2);
-		e.putInt(r3_str, r3);
-		e.commit();
-	}
-	
 	public void resetHS() {
 		r1 = r2 = r3 = 0;
 		saveHS();
@@ -45,7 +31,7 @@ public class Highscores {
 	public Medal addHS(int score) {
 		
 		if (score == r1) {
-			return Medal.GOLD_OLD;
+			return Medal.GOLD;
 			
 		} else if (score > r1) {
 			r3 = r2; 
@@ -70,6 +56,20 @@ public class Highscores {
 		}
 		
 		return Medal.NO_MEDAL;
+	}
+	
+	private void loadHS() {
+		r1 = prefs.getInt(r1_str, 0);
+		r2 = prefs.getInt(r2_str, 0);
+		r3 = prefs.getInt(r3_str, 0);
+	}
+	
+	private void saveHS() {
+		Editor e = prefs.edit();
+		e.putInt(r1_str, r1);
+		e.putInt(r2_str, r2);
+		e.putInt(r3_str, r3);
+		e.commit();
 	}
 	
 }

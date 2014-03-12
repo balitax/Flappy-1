@@ -1,4 +1,4 @@
-package com.kg.game.flappycat;
+package com.kg.game.flappy;
 
 import org.andengine.entity.text.Text;
 import org.andengine.opengl.font.IFont;
